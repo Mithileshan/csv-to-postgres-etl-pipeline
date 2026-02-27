@@ -1,26 +1,50 @@
 services:
-  movies_postgres:
+  db:
     image: postgres:16.2
+    container_name: etl_postgres
     ports:
       - "5433:5432"
     networks:
-      - movies_elt_network
+      - etl_network
     environment:
-      POSTGRES_DB: movies_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ${DATABASE_NAME:-etl_db}
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
     volumes:
-      - ./source_db/create_movies.sql:/docker-entrypoint-initdb.d/create_movies.sql
-      - ./source_db/insert_movies.sql:/docker-entrypoint-initdb.d/insert_movies.sql
-  elt_script:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  etl:
     build:
-      context: ./elt # Directory containing the Dockerfile and elt_pipeline.py
-      dockerfile: Dockerfile # Name of the Dockerfile, if it's something other than "Dockerfile", specify here
-    command: [ "python", "elt_pipeline.py" ]
-    networks:
-      - movies_elt_network
+      context: ./elt
+      dockerfile: Dockerfile
+    container_name: etl_service
     depends_on:
-      - movies_postgres   
+      db:
+        condition: service_healthy
+    networks:
+      - etl_network
+    environment:
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@db:5432/${DATABASE_NAME:-etl_db}
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-etl_db}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      CSV_INPUT_PATH: /app/data/inbox/users.csv
+      BAD_ROWS_PATH: /app/data/bad_rows
+      LOG_LEVEL: INFO
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "etl.run"]
+
+volumes:
+  postgres_data:
+
 networks:
-  movies_elt_network:
+  etl_network:
     driver: bridge
