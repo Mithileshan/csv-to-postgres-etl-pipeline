@@ -1,0 +1,26 @@
+services:
+  movies_postgres:
+    image: postgres:16.2
+    ports:
+      - "5433:5432"
+    networks:
+      - movies_elt_network
+    environment:
+      POSTGRES_DB: movies_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./source_db/create_movies.sql:/docker-entrypoint-initdb.d/create_movies.sql
+      - ./source_db/insert_movies.sql:/docker-entrypoint-initdb.d/insert_movies.sql
+  elt_script:
+    build:
+      context: ./elt # Directory containing the Dockerfile and elt_pipeline.py
+      dockerfile: Dockerfile # Name of the Dockerfile, if it's something other than "Dockerfile", specify here
+    command: [ "python", "elt_pipeline.py" ]
+    networks:
+      - movies_elt_network
+    depends_on:
+      - movies_postgres   
+networks:
+  movies_elt_network:
+    driver: bridge
